@@ -96,7 +96,7 @@ def lts_table(lts_url=default_lts):
 
 def prelim_roll(obsid, lts=None):
     """Grab the roll from the long term schedule for the specified obsid."""
-    if not lts:
+    if lts is None:
         lts = lts_table()
     match = lts['obsid'] == obsid
     n_match = len(np.flatnonzero(match))
@@ -230,6 +230,7 @@ def get_fov(obsid, ocat_dbh, aca_dbh):
             if hrc['timing_mode'] == 'Y':
                 fov['timingmode'] = 1
 
+    ot_date = None
     if target['lts_lt_plan'] is not None:
         ot = target['lts_lt_plan']
         ot_date = DateTime('%04d:%03d' % (ot.year, ot.dayofyear))
@@ -310,6 +311,10 @@ def main(reqids=[], ocat_user=None, password_file=None, outdir='.'):
 
     obsids = []
     for reqid in reqids:
+        len_reqid = len(str(reqid))
+        if not ((len_reqid <= 5) or (len_reqid == 6) or (len_reqid == 8)):
+            raise ValueError(
+                "Requested id neither obsid, sequence number, nor proposal.")
         if len(str(reqid)) <= 5:
             logger.info("building fovs for obsid %d" % reqid)
             obsids.extend([reqid])
@@ -329,9 +334,7 @@ def main(reqids=[], ocat_user=None, password_file=None, outdir='.'):
                 obsids.extend(sobs)
             else:
                 logger.info("\tNo obsids found for proposal")
-        else:
-            raise ValueError(
-                "Requested id neither obsid, sequence number, nor proposal.")
+
 
     for obsid in obsids:
 
