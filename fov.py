@@ -321,7 +321,7 @@ def main(reqids=[], ocat_user=None, password_file=None, outdir='.'):
         if len(str(reqid)) == 6:
             logger.info("building fovs for obsids for seqnum %d" % reqid)
             sobs = get_obsids_seqnum(reqid, ocat_dbh)
-            if sobs:
+            if sobs is not None:
                 logger.info("\tobsids: %s" % ' '.join([str(x) for x in sobs]))
                 obsids.extend(sobs)
             else:
@@ -329,7 +329,7 @@ def main(reqids=[], ocat_user=None, password_file=None, outdir='.'):
         if len(str(reqid)) == 8:
             logger.info("building fovs for obsids for proposal %d" % reqid)
             sobs = get_obsids_propnum(reqid, ocat_dbh)
-            if sobs:
+            if sobs is not None:
                 logger.info("\tobsids: %s" % ' '.join([str(x) for x in sobs]))
                 obsids.extend(sobs)
             else:
