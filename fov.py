@@ -12,10 +12,12 @@ import Ska.DBI
 
 from Chandra.Time import DateTime
 
-last_aimpoint_shift = DateTime('2011:187').date
+import logging
+logger = logging.getLogger()
+
+last_aimpoint_shift = DateTime('2011:187')
 
 def lts_table(lts_url='http://cxc.harvard.edu/target_lists/longsched.html'):
-    lts_url = 'http://cxc.harvard.edu/target_lists/longsched.html'
     soup = BeautifulSoup(urllib.urlopen(lts_url).read())
     page = "".join(soup.findAll(text=True)) 
     pagelines = page.splitlines()
@@ -57,8 +59,6 @@ def prelim_roll(obsid, lts=lts_table()):
     return lts[match]['roll'][0]
 
 def archive_roll(obsid, dbh):
-#    science_1 = dbh.fetchall("""select obsid, obi, quality, ra_pnt, dec_pnt, roll_pnt
-#from axafapstat..science_1 where obsid = %d""" % obsid)
     obs = dbh.fetchall("""select obsid, obi, ra_targ, dec_targ, ra_pnt, dec_pnt, roll_pnt
 from observations where obsid = %d""" % obsid)
     if not len(obs):
@@ -88,7 +88,35 @@ def default_offsets(det):
                 'ACIS-S': (0.15, -0.25)}
     return defaults[det]
 
-def main(request_id):
+def main(reqids=[], outdir='.'):
+
+    console = logging.StreamHandler()
+    logger.setLevel(logging.INFO)
+    logger.addHandler(console)
+
+    arcmin_mm = 2.925
+    cols = ['groupid',
+            'grouping',
+            'coordinates',
+            'target',
+            'roll',
+            'offsety',
+            'offsetz',
+            'offsetsimz',
+            'offsetsimzmm',
+            'grating',
+            'aca',
+            'instrument',
+            'unselectedchips',
+            'chips',
+            'subarrays',
+            'exposuremode',
+            'nodeboundaries',
+            'blankingmode',
+            'chipboundary',
+            'timingmode']
+
+
     username = getpass.getuser()
     dbpassfile = os.path.join(os.environ['HOME'], '.arc5gl_pwd')
 
@@ -100,46 +128,28 @@ def main(request_id):
     sqlsao = Ska.DBI.DBI(dbi='sybase', server='sqlocc', 
                       user=username, passwd=passwd,
                       database='axafocat')
-
     sqlaca = Ska.DBI.DBI(dbi='sybase', server='sybase',
                          user='aca_read', database='aca')
 
-
     obsids = []
-    if len(str(request_id)) <= 5:
-        obsids = [request_id]
-    if len(str(request_id)) == 6:
-        obsids = get_obsids_seqnum(request_id, sqlsao)
-    if len(str(request_id)) == 8:
-        obsids = get_obsids_propnum(request_id, sqlsao)
+    for reqid in reqids:
+        if len(str(reqid)) <= 5:
+            logger.info("building fovs for obsid %d" % reqid)
+            obsids.extend([reqid])
+        if len(str(reqid)) == 6:
+            logger.info("building fovs for obsids for seqnum %d" % reqid)
+            sobs = get_obsids_seqnum(reqid, sqlsao)
+            logger.info("\tobsids: %s" % ' '.join([str(x) for x in sobs]))
+            obsids.extend(sobs)
+        if len(str(reqid)) == 8:
+            logger.info("building fovs for obsids for proposal %d" % reqid)
+            sobs = get_obsids_propnum(reqid, sqlsao)
+            logger.info("\tobsids: %s" % ' '.join([str(x) for x in sobs]))
+            obsids.extend(sobs)
 
     for obsid in obsids:
 
-        target = dbh.fetchone("select * from target where obsid = %d" % obsid)
-
-        arcmin_mm = 2.925
-
-        cols = ['groupid',
-         'grouping',
-         'coordinates',
-         'target',
-         'roll',
-         'offsety',
-         'offsetz',
-         'offsetsimz',
-         'offsetsimzmm',
-         'grating',
-         'aca',
-         'instrument',
-         'unselectedchips',
-         'chips',
-         'subarrays',
-         'exposuremode',
-         'nodeboundaries',
-         'blankingmode',
-         'chipboundary',
-         'timingmode']
-
+        target = sqlsao.fetchone("select * from target where obsid = %d" % obsid)        
 
         roll = archive_roll(obsid, sqlaca)
         if roll is None:
@@ -187,7 +197,6 @@ def main(request_id):
             for x in ccd_map:
                 if acis[x] == 'Y' or re.match('O.+', acis[x]):
                     ccd_list.append('%s' % ccd_map[x])
-            #n_chips = len(ccd_list)
             fov['chips'] = ' '.join(ccd_list)
             if acis['subarray'] != 'NONE':
                 fov['subarrays'] = \
@@ -208,53 +217,46 @@ def main(request_id):
                 fov['timingmode'] = 0
                 if hrc['timing_mode'] == 'Y':
                     fov['timingmode'] = 1
+        
 
+        if target['lts_lt_plan'] is not None:
+            ot = target['lts_lt_plan']
+            ot_date = DateTime('%04d:%03d' % (ot.year, ot.dayofyear))
 
-        #for col in cols:
-        #    if col in fov:
-        #        print "   %s: %s\n" % (col, fov[col])
+        if target['soe_st_sched_date'] is not None:
+            ot = target['soe_st_sched_date']
+            ot_date = DateTime('%04d:%03d' % (ot.year, ot.dayofyear))
 
-        fovfile = open('obs%05d.fov' % obsid, 'w')
+        if ot_date and ot_date.secs < last_aimpoint_shift.secs:
+            logger.warn("inaccurate fov: obsid %d predates last aimpoint shift." % obsid)
+                              
+        outfile = 'obs%05d.fov' % obsid
+        fovfile = open(outfile, 'w')
         fovfile.write("fovid: %(fovid)s\n" % fov)
         for col in cols:
             if col in fov:
                 fovfile.write("   %s: %s\n" % (col, fov[col]))
         fovfile.close()
+        logger.info("obsid %d fov written to: %s" % (obsid, outfile))
 
 
-#n_chips = len(np.flatnonzero(
-#        np.array([ acis[x] == 'Y'
-#                   or re.match('O.+', acis[x]) for x in allccdlist ])))
-#ccdlist = 
-#
-#
-#
-#        bg_est = bg_per_chip * n_chips
-#        if (acis['eventfilter'] == 'Y'): 
-#            evt_diff = 13 - (acis['eventfilter_higher']
-#                             - acis['eventfilter_lower'])
-#            bg_est = (bg_per_chip - evt_diff * bg_per_kev_per_chip) * n_chips
-#
-#        curr_limit = sat_limit[acis['exp_mode']][acis['bep_pack']] * tolerance
-#        if (target['est_cnt_rate'] + bg_est) >= curr_limit:
-#            print "Possible Saturation"
-#
-#
-#        print "est_cnts, limit, mode, bep, n_chips"
-#        print "%f, %f, %s, %s, %d" % ((target['est_cnt_rate'] + bg_est),
-#                                            curr_limit,
-#                                            acis['exp_mode'],
-#                                            acis['bep_pack'],
-#                                            n_chips)
-#                                       
-#        #raise ValueError
-#        
-#
-#
-#    else:
-#        print "Not ACIS"
-#
-#if __name__ == '__main__':
-#    opt, args = get_options()
-#    main(opt)
-    
+def get_args():
+    from argparse import ArgumentParser
+    parser = ArgumentParser(description="obsvis fov generator from ocat")
+    parser.add_argument('reqids', 
+                        type=int,
+                        nargs='+',
+                        help="id or ids to fetch")
+    parser.add_argument("--outdir", 
+                        default=".",
+                        help="output directory for fov files")
+    args = parser.parse_args()
+    return args
+
+
+if __name__ == '__main__':
+    my_args = get_args()
+    main(**my_args.__dict__)
+
+
+
