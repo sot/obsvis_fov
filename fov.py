@@ -88,6 +88,7 @@ def default_offsets(det):
                 'ACIS-S': (0.15, -0.25)}
     return defaults[det]
 
+
 def main(reqids=[], outdir='.'):
 
     console = logging.StreamHandler()
@@ -230,7 +231,9 @@ def main(reqids=[], outdir='.'):
         if ot_date and ot_date.secs < last_aimpoint_shift.secs:
             logger.warn("inaccurate fov: obsid %d predates last aimpoint shift." % obsid)
                               
-        outfile = 'obs%05d.fov' % obsid
+        if not os.path.exists(outdir):
+            os.makedirs(outdir)
+        outfile = os.path.join(outdir, 'obs%05d.fov' % obsid)
         fovfile = open(outfile, 'w')
         fovfile.write("fovid: %(fovid)s\n" % fov)
         for col in cols:
