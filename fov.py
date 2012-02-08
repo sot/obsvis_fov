@@ -316,13 +316,22 @@ def main(reqids=[], ocat_user=None, password_file=None, outdir='.'):
         if len(str(reqid)) == 6:
             logger.info("building fovs for obsids for seqnum %d" % reqid)
             sobs = get_obsids_seqnum(reqid, ocat_dbh)
-            logger.info("\tobsids: %s" % ' '.join([str(x) for x in sobs]))
-            obsids.extend(sobs)
+            if sobs:
+                logger.info("\tobsids: %s" % ' '.join([str(x) for x in sobs]))
+                obsids.extend(sobs)
+            else:
+                logger.info("\tNo obsids found for sequence")
         if len(str(reqid)) == 8:
             logger.info("building fovs for obsids for proposal %d" % reqid)
             sobs = get_obsids_propnum(reqid, ocat_dbh)
-            logger.info("\tobsids: %s" % ' '.join([str(x) for x in sobs]))
-            obsids.extend(sobs)
+            if sobs:
+                logger.info("\tobsids: %s" % ' '.join([str(x) for x in sobs]))
+                obsids.extend(sobs)
+            else:
+                logger.info("\tNo obsids found for proposal")
+        else:
+            raise ValueError(
+                "Requested id neither obsid, sequence number, nor proposal.")
 
     for obsid in obsids:
 
@@ -346,10 +355,11 @@ def main(reqids=[], ocat_user=None, password_file=None, outdir='.'):
 def get_args():
     from argparse import ArgumentParser
     description = """
-Obsvis FOV generator.  This tool generates obsvis-compatible field of view files.
-It accepts as arguments a space-delimited list of obsids, sequence numbers, 
-or proposal ids (the argument type is determined by the number of digits).  
-For sequence numbers or proposal ids, more than one obsid may be retrieved, 
+Obsvis FOV generator.  This tool generates obsvis-compatible field of view 
+files.
+It accepts as arguments a space-delimited list of obsids, sequence numbers,
+or proposal ids (the argument type is determined by the number of digits).
+For sequence numbers or proposal ids, more than one obsid may be retrieved,
 and thus more than one field-of-view file will be created.
 
 To create the field-of-view files, the targets table of the OCAT database is
