@@ -335,9 +335,7 @@ def main(reqids=[], ocat_user=None, password_file=None, outdir='.'):
             else:
                 logger.info("\tNo obsids found for proposal")
 
-
     for obsid in obsids:
-
         fov = get_fov(obsid, ocat_dbh, aca_dbh)
 
         if not fov:
@@ -367,7 +365,7 @@ and thus more than one field-of-view file will be created.
 
 To create the field-of-view files, the targets table of the OCAT database is
 queried.  Options are provided to assist with supplying a username/password
-combination for access.  But default, the username of the user running the tool
+combination for access.  By default, the username of the user running the tool
 (guessed from environment variables or uid) and the password in ~/.arc5gl_pwd
 will be used.
 """
