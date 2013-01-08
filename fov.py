@@ -172,6 +172,10 @@ def get_fov(obsid, ocat_dbh, aca_dbh):
                target=target['targname'],
                offsetsimz=0.0,
                offsetsimzmm=0.0,
+               showtarget=1,
+               showopticalaxis=1,
+               showaimpoint=1,
+
                grating=target['grating'],
                offsety=target['y_det_offset'],
                offsetz=target['z_det_offset'],
@@ -207,8 +211,10 @@ def get_fov(obsid, ocat_dbh, aca_dbh):
         ccd_map = dict(i_ccd_map.items() + s_ccd_map.items())
         ccd_list = []
         for x in ccd_map:
-            if acis[x] == 'Y' or re.match('O.+', acis[x]):
+            if acis[x] == 'Y':
                 ccd_list.append('%s' % ccd_map[x])
+            if re.match('O.+', acis[x]):
+                ccd_list.append('(%s)' % ccd_map[x])
         fov['chips'] = ' '.join(ccd_list)
         if acis['subarray'] != 'NONE':
             fov['subarrays'] = \
@@ -259,6 +265,9 @@ def fov_text(fov):
             'offsetsimz',
             'offsetsimzmm',
             'grating',
+            'showtarget',
+            'showopticalaxis',
+            'showaimpoint',
             'aca',
             'instrument',
             'unselectedchips',
@@ -348,6 +357,7 @@ def main(reqids=[], ocat_user=None, password_file=None, outdir='.'):
         fovfile = open(outfile, 'w')
         fov_lines = fov_text(fov)
         fovfile.writelines('\n'.join(fov_lines))
+        fovfile.write("\n")
         fovfile.close()
 
         logger.info("obsid %d fov written to: %s" % (obsid, outfile))
