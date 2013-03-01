@@ -14,11 +14,8 @@ numbers, or proposals.
 import re
 import os
 import getpass
-import urllib
 import logging
-from BeautifulSoup import BeautifulSoup
-
-import asciitable
+import Ska.Sun
 import numpy as np
 import Ska.DBI
 from Chandra.Time import DateTime
@@ -46,80 +43,18 @@ logger.setLevel(logging.INFO)
 logger.addHandler(console)
 
 
-def lts_table(lts_url=default_lts):
-    """
-    Grab the HTML long term schedule, skip everything except lines that
-    look like obsid lines, and cast them into a table using asciitable.
-
-    This does not get the lts week information available on that page from
-    the paragraph order, but that can be retrieved directly from the
-    axafocat.targets table
-
-    :param lts_url: long term schedule url
-    :returns: long term schedule targets in page order
-    :rtype: numpy array
-
-    """
-
-    soup = BeautifulSoup(urllib.urlopen(lts_url).read())
-    page = "".join(soup.findAll(text=True))
-    pagelines = page.splitlines()
-    obslines = []
-    for line in pagelines:
-        # the lines that begin with a sequence number and obsid and end with
-        # proposal number
-        if re.match('^\d{6}\s+(P1)?\s+\d{1,5}.*\d{8}\s*$', line):
-            obslines.append(line)
-
-    col_starts = (0, 7, 10, 16, 38, 45, 53, 61, 67,
-                73, 80, 82, 84, 89, 110, 115,
-                119, 122, 125, 128, 131, 134,
-                138, 140, 165)
-    col_ends = (6, 9, 14, 36, 43, 52, 60, 66, 72,
-                79, 81, 83, 88, 107, 112, 117,
-                120, 123, 126, 129, 132, 135,
-                139, 162, 173)
-    names = ('seqnbr', 'pool', 'obsid', 'target', 'ksec',
-             'ra', 'dec', 'roll', 'pitch',
-             'si', 'R', 'O', 'grating', 'observer', 'type', 'AO', 'OR_num',
-             'TC', 'RC', 'PC', 'UC', 'Mlt',
-             'CRem', 'approved', 'propid')
-
-    lts = asciitable.read(obslines,
-                          Reader=asciitable.FixedWidthNoHeader,
-                          col_starts=col_starts,
-                          col_ends=col_ends,
-                          names=names
-                      )
-    return lts
-
-
-def prelim_roll(obsid, lts=None):
-    """Grab the roll from the long term schedule for the specified obsid."""
-    if lts is None:
-        lts = lts_table()
-    match = lts['obsid'] == obsid
-    n_match = len(np.flatnonzero(match))
-    if n_match == 0:
-        return None
-    if n_match > 1:
-        raise ValueError
-    return lts[match]['roll'][0]
-
-
 def archive_roll(obsid, dbh):
-    """Grab the roll from the observations table for the specified obsid."""
-    obs = dbh.fetchall("""select obsid, obi, ra_targ, dec_targ,
-                          ra_pnt, dec_pnt, roll_pnt
-                          from observations where obsid = %d""" % obsid)
+    """Grab the roll from the obidet table for the specified obsid."""
+    obs = dbh.fetchall("""select obsid, obi, roll
+                          from axafapstat..obidet_0_5 where obsid = %d""" % obsid)
     if not len(obs):
         return None
-    if np.unique(obs['obi']) > 1:
-        raise ValueError("Cannot determine roll for multi-obi obsid")
-    if np.std(obs['roll_pnt'] > 2):
+    if np.std(obs['roll'] > 2):
         raise ValueError("Observed rolls for obsid have std > 2.00; failing")
+    #if np.unique(obs['obi']) > 1:
+    #    raise ValueError("Cannot determine roll for multi-obi obsid")
     # if there is more than one and they are close, just return the mean
-    return np.mean(obs['roll_pnt'])
+    return np.mean(obs['roll'])
 
 
 def get_obsids_seqnum(reqid, dbh):
@@ -139,27 +74,27 @@ where prop_num = '%d'""" % reqid)
         return targs['obsid']
 
 
-def get_fov(obsid, ocat_dbh, aca_dbh):
+def get_fov(obsid, dbh):
     """
     For a given obsid, retrieve the pieces necessary to build an obsvis FOV.
 
     :param obsid: requested obsid
-    :param ocat_dbh: handle for axafocat database
     :param aca_dbh: handle for aca database
     :returns: field-of-view
     :rtype: dict
     """
 
-    target = ocat_dbh.fetchone("select * from target where obsid = %d" % obsid)
+    target = dbh.fetchone("select * from target where obsid = %d" % obsid)
 
     if not target:
         logger.warn("No entry for %d in target table" % obsid)
         return None
 
-    roll = archive_roll(obsid, aca_dbh)
-    if roll is None:
-        lts = lts_table()
-        roll = prelim_roll(obsid, lts)
+    roll = archive_roll(obsid, dbh)
+    if roll is None and target['lts_lt_plan']:
+        target_date = DateTime("%04d:%03d" % (target['lts_lt_plan'].year,
+                                              target['lts_lt_plan'].dayofyear))
+        roll = Ska.Sun.nominal_roll(target['ra'], target['dec'], target_date)
     if roll is None:
         roll = 0
 
@@ -175,7 +110,6 @@ def get_fov(obsid, ocat_dbh, aca_dbh):
                showtarget=1,
                showopticalaxis=1,
                showaimpoint=1,
-
                grating=target['grating'],
                offsety=target['y_det_offset'],
                offsetz=target['z_det_offset'],
@@ -193,7 +127,7 @@ def get_fov(obsid, ocat_dbh, aca_dbh):
         if fov['offsetz'] is None:
             fov['offsetz'] = def_offsets[1]
 
-    sim = ocat_dbh.fetchone("select * from sim where obsid = %d" % obsid)
+    sim = dbh.fetchone("select * from sim where obsid = %d" % obsid)
     if sim:
         arcmin_mm = 2.925
         # just set one or the other (simzmm or simz) or obsvis complains
@@ -203,7 +137,7 @@ def get_fov(obsid, ocat_dbh, aca_dbh):
     if (target['acisid']):
         fov['unselectedchips'] = 0
         fov['subarrays'] = None
-        acis = ocat_dbh.fetchone("""select * from acisparam a, target t
+        acis = dbh.fetchone("""select * from acisparam a, target t
                                where a.acisid=t.acisid
                                and a.acisid=%d""" % target['acisid'])
         i_ccd_map = {'ccdi%d_on' % i: 'I%d' % i for i in range(0, 4)}
@@ -227,7 +161,7 @@ def get_fov(obsid, ocat_dbh, aca_dbh):
     if (target['hrcid']):
         fov['blankingmode'] = 'None'
         fov['chipboundary'] = 1
-        hrc = ocat_dbh.fetchone("""select * from hrcparam h, target t
+        hrc = dbh.fetchone("""select * from hrcparam h, target t
                                  where h.hrcid=t.hrcid
                                  and h.hrcid=%d""" % target['hrcid'])
         if target['instrument'] == 'HRC-S':
@@ -311,12 +245,9 @@ def main(reqids=[], ocat_user=None, password_file=None, outdir='.'):
         prompt = "No password-file found, supply password: "
         passwd = getpass.getpass(prompt=prompt)
 
-    ocat_dbh = Ska.DBI.DBI(dbi='sybase', server='sqlsao',
-                           user=username, passwd=passwd,
-                           database='axafocat')
-
-    aca_dbh = Ska.DBI.DBI(dbi='sybase', server='sybase',
-                         user='aca_read', database='aca')
+    dbh = Ska.DBI.DBI(dbi='sybase', server='sqlsao',
+                      user=username, passwd=passwd,
+                      database='axafocat')
 
     obsids = []
     for reqid in reqids:
@@ -329,7 +260,7 @@ def main(reqids=[], ocat_user=None, password_file=None, outdir='.'):
             obsids.extend([reqid])
         if len(str(reqid)) == 6:
             logger.info("building fovs for obsids for seqnum %d" % reqid)
-            sobs = get_obsids_seqnum(reqid, ocat_dbh)
+            sobs = get_obsids_seqnum(reqid, dbh)
             if sobs is not None:
                 logger.info("\tobsids: %s" % ' '.join([str(x) for x in sobs]))
                 obsids.extend(sobs)
@@ -337,7 +268,7 @@ def main(reqids=[], ocat_user=None, password_file=None, outdir='.'):
                 logger.info("\tNo obsids found for sequence")
         if len(str(reqid)) == 8:
             logger.info("building fovs for obsids for proposal %d" % reqid)
-            sobs = get_obsids_propnum(reqid, ocat_dbh)
+            sobs = get_obsids_propnum(reqid, dbh)
             if sobs is not None:
                 logger.info("\tobsids: %s" % ' '.join([str(x) for x in sobs]))
                 obsids.extend(sobs)
@@ -345,7 +276,7 @@ def main(reqids=[], ocat_user=None, password_file=None, outdir='.'):
                 logger.info("\tNo obsids found for proposal")
 
     for obsid in obsids:
-        fov = get_fov(obsid, ocat_dbh, aca_dbh)
+        fov = get_fov(obsid, dbh)
 
         if not fov:
             continue
