@@ -5,9 +5,9 @@
 fov
 ========
 
-This code queries the sybase OCAT table (and as needed an ACA obspar table) to 
-create obsvis-compatible field-of-view files for requested obsids, sequence
-numbers, or proposals.
+This code queries the sybase OCAT table to create obsvis-compatible
+field-of-view files for requested obsids, sequence numbers, or
+proposals.
 """
 
 
