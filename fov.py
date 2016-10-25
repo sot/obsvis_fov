@@ -254,53 +254,52 @@ def main(reqids=[], ocat_user=None, password_file=None, outdir='.'):
         prompt = "No password-file found, supply password: "
         passwd = getpass.getpass(prompt=prompt)
 
-    dbh = Ska.DBI.DBI(dbi='sybase', server='sqlsao',
-                      user=username, passwd=passwd,
-                      database='axafocat')
+    with Ska.DBI.DBI(dbi='sybase', server='sqlsao',
+                     user=username, passwd=passwd,
+                     database='axafocat') as dbh:
+        obsids = []
+        for reqid in reqids:
+            len_reqid = len(str(reqid))
+            if not ((len_reqid <= 5) or (len_reqid == 6) or (len_reqid == 8)):
+                raise ValueError(
+                    "Requested id neither obsid, sequence number, nor proposal.")
+            if len(str(reqid)) <= 5:
+                logger.info("building fovs for obsid %d" % reqid)
+                obsids.extend([reqid])
+            if len(str(reqid)) == 6:
+                logger.info("building fovs for obsids for seqnum %d" % reqid)
+                sobs = get_obsids_seqnum(reqid, dbh)
+                if sobs is not None:
+                    logger.info("\tobsids: %s" % ' '.join([str(x) for x in sobs]))
+                    obsids.extend(sobs)
+                else:
+                    logger.info("\tNo obsids found for sequence")
+            if len(str(reqid)) == 8:
+                logger.info("building fovs for obsids for proposal %d" % reqid)
+                sobs = get_obsids_propnum(reqid, dbh)
+                if sobs is not None:
+                    logger.info("\tobsids: %s" % ' '.join([str(x) for x in sobs]))
+                    obsids.extend(sobs)
+                else:
+                    logger.info("\tNo obsids found for proposal")
 
-    obsids = []
-    for reqid in reqids:
-        len_reqid = len(str(reqid))
-        if not ((len_reqid <= 5) or (len_reqid == 6) or (len_reqid == 8)):
-            raise ValueError(
-                "Requested id neither obsid, sequence number, nor proposal.")
-        if len(str(reqid)) <= 5:
-            logger.info("building fovs for obsid %d" % reqid)
-            obsids.extend([reqid])
-        if len(str(reqid)) == 6:
-            logger.info("building fovs for obsids for seqnum %d" % reqid)
-            sobs = get_obsids_seqnum(reqid, dbh)
-            if sobs is not None:
-                logger.info("\tobsids: %s" % ' '.join([str(x) for x in sobs]))
-                obsids.extend(sobs)
-            else:
-                logger.info("\tNo obsids found for sequence")
-        if len(str(reqid)) == 8:
-            logger.info("building fovs for obsids for proposal %d" % reqid)
-            sobs = get_obsids_propnum(reqid, dbh)
-            if sobs is not None:
-                logger.info("\tobsids: %s" % ' '.join([str(x) for x in sobs]))
-                obsids.extend(sobs)
-            else:
-                logger.info("\tNo obsids found for proposal")
+        for obsid in obsids:
+            fov = get_fov(obsid, dbh)
 
-    for obsid in obsids:
-        fov = get_fov(obsid, dbh)
+            if not fov:
+                continue
 
-        if not fov:
-            continue
+            if not os.path.exists(outdir):
+                os.makedirs(outdir)
 
-        if not os.path.exists(outdir):
-            os.makedirs(outdir)
+            outfile = os.path.join(outdir, 'obs%05d.fov' % obsid)
+            fovfile = open(outfile, 'w')
+            fov_lines = fov_text(fov)
+            fovfile.writelines('\n'.join(fov_lines))
+            fovfile.write("\n")
+            fovfile.close()
 
-        outfile = os.path.join(outdir, 'obs%05d.fov' % obsid)
-        fovfile = open(outfile, 'w')
-        fov_lines = fov_text(fov)
-        fovfile.writelines('\n'.join(fov_lines))
-        fovfile.write("\n")
-        fovfile.close()
-
-        logger.info("obsid %d fov written to: %s" % (obsid, outfile))
+            logger.info("obsid %d fov written to: %s" % (obsid, outfile))
 
 
 def get_args():
