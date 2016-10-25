@@ -21,14 +21,13 @@ import Ska.DBI
 from Chandra.Time import DateTime
 
 
-def default_offsets(det):
+def default_old_offsets(det):
     """Get default offsets.
 
     :param det: one of HRC-I, HRC-S, ACIS-I, or ACIS-S
     :return: (y_offset, z_offset)
     :rtype: tuple
     """
-
     defaults = {'HRC-I': (0.0, 0.0),
                 'HRC-S': (0.0, 0.0),
                 'ACIS-I': (-0.2, -0.25),
@@ -85,6 +84,8 @@ def get_fov(obsid, dbh):
     """
 
     target = dbh.fetchone("select * from target where obsid = %d" % obsid)
+    prop_info = dbh.fetchone("select * from prop_info where ocat_propid = {}".format(
+            target['ocat_propid']))
 
     if not target:
         logger.warn("No entry for %d in target table" % obsid)
@@ -121,10 +122,18 @@ def get_fov(obsid, dbh):
     # as these have changed over time, this are not good for viewing
     # old observations
     if (fov['offsety'] is None) or (fov['offsetz'] is None):
-        def_offsets = default_offsets(target['instrument'])
+        # new offsets should just be 0
+        if int(prop_info['ao_str']) >= 18:
+            def_offsets = [0, 0]
+        else:
+            def_offsets = default_old_offsets(target['instrument'])
         if fov['offsety'] is None:
+            logger.warn("Using {} for Y offset for this cycle {} obs. NULL in target table".format(
+                    def_offsets[0], prop_info['ao_str']))
             fov['offsety'] = def_offsets[0]
         if fov['offsetz'] is None:
+            logger.warn("Using {} for Z offset for this cycle {} obs. NULL in target table".format(
+                    def_offsets[1], prop_info['ao_str']))
             fov['offsetz'] = def_offsets[1]
 
     sim = dbh.fetchone("select * from sim where obsid = %d" % obsid)
